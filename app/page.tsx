@@ -1,67 +1,483 @@
-const sideNav = [
-  { label: "CURRENT VOID", active: true },
-  { label: "NEURAL HISTORY" },
-  { label: "ASSETS" },
-  { label: "SYSTEM CONFIG" },
-];
+"use client";
 
-const commandSteps = [
-  {
-    title: "指令优化",
-    detail: "结合已知意图补齐约束与语气",
-  },
-  {
-    title: "执行规划",
-    detail: "按优先级生成多阶段流程",
-  },
-  {
-    title: "渲染执行",
-    detail: "输出结果并保留可追踪痕迹",
-  },
-];
+import { useEffect, useMemo, useRef, useState } from "react";
+
+type Recommendation = {
+  id: string;
+  prompt: string;
+  display_text_zh?: string;
+};
+
+type TurnRecord = {
+  turn_id: string;
+  turn_index: number;
+  user_cmd?: string | null;
+  resolved_cmd?: string | null;
+  status?: string | null;
+  input_img_url?: string | null;
+  output_img_url?: string | null;
+  finished_at?: string | null;
+};
+
+type SessionResponse = {
+  session_id: string;
+  current_img_url: string;
+  recommendations: Recommendation[];
+  turns?: TurnRecord[];
+  active_turn_id?: string | null;
+};
+
+type AuthState = {
+  ok: boolean;
+  key_hint?: string;
+  internal?: boolean;
+};
+
+type ChatMessage =
+  | {
+      id: string;
+      role: "assistant";
+      label: string;
+      text: string;
+      imageUrl?: string;
+    }
+  | {
+      id: string;
+      role: "user";
+      label: string;
+      text: string;
+      imageUrl?: string;
+    };
 
 const modeButtons = ["Normal", "DeepThink"];
 
+const demoSuggestions = [
+  { title: "电影级青橙色调", subtitle: "Enhance neon lighting", accent: "gradient" },
+  { title: "电影级胶片效果", subtitle: "Film-grade film effect", accent: "film" },
+  { title: "转换为 3D 效果", subtitle: "Convert to 3D render", accent: "cube" },
+  { title: "手动编辑", subtitle: "Custom Edit", accent: "pen" },
+];
+
+const BACKEND_HINT = "https://bluepixel.vivo.com.cn";
+const TOPBAR_MESSAGE_ICON =
+  "https://www.figma.com/api/mcp/asset/5b754da6-8524-4ebd-a517-c5c3445c6d22";
+const TOPBAR_BELL_ICON =
+  "https://www.figma.com/api/mcp/asset/c731baa3-48ad-4b47-ad88-797929916d7d";
+const SEND_BUTTON_ICON =
+  "https://www.figma.com/api/mcp/asset/45e01f86-942b-45ad-8f48-c11803f0559e";
+const SIDEBAR_NEW_ICON =
+  "https://www.figma.com/api/mcp/asset/4676ecbe-79a6-4947-977e-96196770c3d2";
+const SIDEBAR_HISTORY_ICON =
+  "https://www.figma.com/api/mcp/asset/f0d5c7c3-778b-40d1-8059-7272263af11e";
+const SIDEBAR_CHAT_ICON =
+  "https://www.figma.com/api/mcp/asset/642ef86f-98fa-44ef-a997-e9a9978042e0";
+const SIDEBAR_DELETE_ICON =
+  "https://www.figma.com/api/mcp/asset/0eee08d7-db1b-4a89-9d4b-c1ea3d222ef9";
+const SIDEBAR_HELP_ICON =
+  "https://www.figma.com/api/mcp/asset/ad53aa73-dfaf-4dff-ba11-3a6ea6571dd8";
+const SIDEBAR_STATUS_ICON =
+  "https://www.figma.com/api/mcp/asset/09877dee-a9e3-42a6-a6f9-c973dd1c734c";
+const SIDEBAR_AVATAR =
+  "https://www.figma.com/api/mcp/asset/0448d584-9c63-498d-97e3-6972835894bb";
+
+function SuggestionIcon({ accent }: { accent: string }) {
+  if (accent === "gradient") {
+    return <span className="suggestion-icon suggestion-icon-gradient" />;
+  }
+
+  if (accent === "film") {
+    return <span className="suggestion-icon suggestion-icon-film" />;
+  }
+
+  if (accent === "cube") {
+    return <span className="suggestion-icon suggestion-icon-cube" />;
+  }
+
+  return <span className="suggestion-icon suggestion-icon-pen">✍</span>;
+}
+
+function buildMessagesFromTurns(turns: TurnRecord[], currentImgUrl?: string | null) {
+  const items: ChatMessage[] = [
+    {
+      id: "assistant-welcome",
+      role: "assistant",
+      label: "VOID INTELLIGENCE",
+      text: "欢迎使用 VINS Agent V2。点击左上角“创建新绘画”即可进入场景绘画，随后可以通过自然语言继续进行多轮图像编辑。",
+      imageUrl: currentImgUrl ?? undefined,
+    },
+  ];
+
+  turns.forEach((turn) => {
+    if (turn.user_cmd) {
+      items.push({
+        id: `${turn.turn_id}-user`,
+        role: "user",
+        label: "OPERATOR",
+        text: turn.user_cmd,
+        imageUrl: turn.input_img_url ?? currentImgUrl ?? undefined,
+      });
+    }
+
+    if (turn.resolved_cmd) {
+      items.push({
+        id: `${turn.turn_id}-assistant`,
+        role: "assistant",
+        label: "VOID INTELLIGENCE",
+        text: turn.resolved_cmd,
+        imageUrl: turn.output_img_url ?? undefined,
+      });
+    }
+  });
+
+  return items;
+}
+
 export default function Home() {
+  const [auth, setAuth] = useState<AuthState | null>(null);
+
+  const [imageUrl, setImageUrl] = useState(
+    "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1400&q=80",
+  );
+  const [sessionId, setSessionId] = useState("");
+  const [currentImageUrl, setCurrentImageUrl] = useState("");
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+  const [dismissedRecommendationIds, setDismissedRecommendationIds] = useState<string[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() =>
+    buildMessagesFromTurns([], ""),
+  );
+  const [userCmd, setUserCmd] = useState("");
+  const [statusText, setStatusText] = useState("准备进入场景绘画");
+  const [isCreating, setIsCreating] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [activeTurnId, setActiveTurnId] = useState("");
+  const [requestError, setRequestError] = useState("");
+
+  const streamReaderRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(
+    null,
+  );
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadAuth() {
+      try {
+        const response = await fetch("/api/auth/me", { cache: "no-store" });
+
+        if (!response.ok) {
+          if (!ignore) {
+            setAuth({ ok: true, internal: true });
+            setStatusText("准备进入场景绘画");
+          }
+          return;
+        }
+
+        const payload = (await response.json()) as AuthState;
+        if (!ignore) {
+          setAuth(payload);
+          setStatusText("已接入场景绘画");
+        }
+      } catch {
+        if (!ignore) {
+          setAuth({ ok: true, internal: true });
+          setStatusText("已接入场景绘画");
+        }
+      }
+    }
+
+    loadAuth();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  const visibleSuggestions = useMemo(() => {
+    if (sessionId && recommendations.length > 0) {
+      return recommendations
+        .filter((item) => !dismissedRecommendationIds.includes(item.id))
+        .map((item, index) => ({
+          title: item.display_text_zh || `推荐 ${index + 1}`,
+          subtitle: item.prompt,
+          accent: demoSuggestions[index % demoSuggestions.length]?.accent ?? "gradient",
+          recId: item.id,
+        }));
+    }
+
+    return [];
+  }, [dismissedRecommendationIds, recommendations, sessionId]);
+
+  async function refreshSession(id: string) {
+    const response = await fetch(`/api/conversations/${id}`, { cache: "no-store" });
+    if (!response.ok) {
+      return;
+    }
+
+    const payload = (await response.json()) as SessionResponse;
+    setCurrentImageUrl(payload.current_img_url);
+    setRecommendations(payload.recommendations ?? []);
+    setDismissedRecommendationIds([]);
+    setActiveTurnId(payload.active_turn_id ?? "");
+    setMessages(buildMessagesFromTurns(payload.turns ?? [], payload.current_img_url));
+  }
+
+  async function handleQuickCreate() {
+    if (isCreating || !imageUrl) return;
+
+    setRequestError("");
+    setIsCreating(true);
+
+    try {
+      const response = await fetch("/api/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ img_url: imageUrl }),
+      });
+
+      const payload = (await response.json()) as SessionResponse & { error?: string };
+      if (!response.ok) {
+        setRequestError(payload.error || "创建会话失败");
+        return;
+      }
+
+      setSessionId(payload.session_id);
+      setCurrentImageUrl(payload.current_img_url);
+      setRecommendations(payload.recommendations ?? []);
+      setDismissedRecommendationIds([]);
+      setMessages(buildMessagesFromTurns([], payload.current_img_url));
+      setStatusText("已进入场景绘画");
+    } catch {
+      setRequestError("创建会话请求失败，请稍后再试");
+    } finally {
+      setIsCreating(false);
+    }
+  }
+
+  async function consumeTurnStream(response: Response, session: string) {
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error("流式响应不可用");
+    }
+
+    streamReaderRef.current = reader;
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const chunks = buffer.split("\n\n");
+      buffer = chunks.pop() ?? "";
+
+      for (const chunk of chunks) {
+        const line = chunk
+          .split("\n")
+          .find((item) => item.trim().startsWith("data: "));
+        if (!line) continue;
+
+        const payload = line.slice(6).trim();
+        if (payload === "[DONE]") {
+          setStatusText("本轮完成");
+          continue;
+        }
+
+        const event = JSON.parse(payload) as
+          | { type: "turn_start"; turn_id: string }
+          | { type: "node_start"; node: string }
+          | { type: "node_complete"; node: string }
+          | { type: "clarify"; question: string }
+          | { type: "quality_check"; passed: boolean }
+          | { type: "turn_complete"; turn_id: string; output_img_url: string }
+          | { type: "turn_error"; error: string };
+
+        switch (event.type) {
+          case "turn_start":
+            setActiveTurnId(event.turn_id);
+            setStatusText(`Turn ${event.turn_id.slice(0, 8)} 开始执行`);
+            break;
+          case "node_start":
+            setStatusText(`节点执行中: ${event.node}`);
+            break;
+          case "node_complete":
+            setStatusText(`节点已完成: ${event.node}`);
+            break;
+          case "clarify":
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `clarify-${Date.now()}`,
+                role: "assistant",
+                label: "VOID INTELLIGENCE",
+                text: event.question,
+              },
+            ]);
+            setStatusText("系统需要进一步澄清");
+            break;
+          case "quality_check":
+            setStatusText(event.passed ? "质量检查通过" : "质量检查未通过");
+            break;
+          case "turn_complete":
+            setCurrentImageUrl(event.output_img_url);
+            setStatusText("图像编辑完成");
+            await refreshSession(session);
+            setActiveTurnId("");
+            break;
+          case "turn_error":
+            setRequestError(event.error);
+            setStatusText("执行失败");
+            setActiveTurnId("");
+            break;
+        }
+      }
+    }
+  }
+
+  async function handleSend(options?: { selectedRecId?: string; displayText?: string }) {
+    if (!sessionId || isStreaming) return;
+
+    const command = options?.displayText || userCmd;
+    const selectedRecId = options?.selectedRecId || null;
+
+    if (!command && !selectedRecId) {
+      setRequestError("请输入编辑指令或点击推荐语");
+      return;
+    }
+
+    setIsStreaming(true);
+    setRequestError("");
+
+    if (selectedRecId) {
+      setDismissedRecommendationIds((prev) =>
+        prev.includes(selectedRecId) ? prev : [...prev, selectedRecId],
+      );
+    }
+
+    if (command) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `local-user-${Date.now()}`,
+          role: "user",
+          label: "OPERATOR",
+          text: command,
+          imageUrl: currentImageUrl || imageUrl,
+        },
+      ]);
+    }
+
+    if (!options?.selectedRecId) {
+      setUserCmd("");
+    }
+
+    try {
+      const response = await fetch(`/api/conversations/${sessionId}/turns`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_cmd: selectedRecId ? null : command,
+          selected_rec_id: selectedRecId,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({ error: "请求失败" }));
+        throw new Error(payload.error || "执行失败");
+      }
+
+      await consumeTurnStream(response, sessionId);
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : "执行失败");
+      setStatusText("执行失败");
+    } finally {
+      streamReaderRef.current = null;
+      setIsStreaming(false);
+    }
+  }
+
+  async function handleCancel() {
+    if (!sessionId || !activeTurnId) return;
+
+    try {
+      await fetch(`/api/conversations/${sessionId}/turns/${activeTurnId}/cancel`, {
+        method: "POST",
+      });
+      streamReaderRef.current?.cancel().catch(() => undefined);
+      setActiveTurnId("");
+      setIsStreaming(false);
+      setStatusText("已发送取消请求");
+    } catch {
+      setRequestError("取消失败");
+    }
+  }
+
   return (
-    <main className="app-shell">
+    <main className="dashboard">
       <aside className="sidebar">
-        <div>
-          <div className="brand-block">
-            <div className="brand-mark">vivo</div>
+        <div className="sidebar-main">
+          <div className="brand">
             <div>
               <p className="brand-title">Pro Studio</p>
-              <p className="brand-subtitle">PRECISION V2</p>
+              <p className="brand-subtitle">智能图片处理助手</p>
             </div>
           </div>
 
-          <button className="sequence-button">+ Initiate Sequence</button>
+          <button
+            type="button"
+            className="primary-action"
+            onClick={() => void handleQuickCreate()}
+            disabled={isCreating}
+          >
+            <img src={SIDEBAR_NEW_ICON} alt="" className="primary-action-icon" />
+            {isCreating ? "进入中..." : "创建新绘画"}
+          </button>
 
-          <nav className="side-nav">
-            {sideNav.map((item) => (
-              <a
-                key={item.label}
-                href="#"
-                className={item.active ? "side-link active" : "side-link"}
-              >
-                <span className="side-link-icon" />
-                {item.label}
-              </a>
-            ))}
-          </nav>
+          <section className="history-panel">
+            <div className="history-heading">
+              <img src={SIDEBAR_HISTORY_ICON} alt="" className="history-heading-image" />
+              历史对话
+            </div>
+
+            <div className="history-list">
+              {sessionId ? (
+                <button className="history-item is-active history-item-live">
+                  <img src={SIDEBAR_CHAT_ICON} alt="" className="history-item-image" />
+                  <span className="history-copy">
+                    <strong>当前会话</strong>
+                    <span>{sessionId.slice(0, 12)}...</span>
+                  </span>
+                  <img src={SIDEBAR_DELETE_ICON} alt="" className="history-item-delete" />
+                </button>
+              ) : (
+                <div className="history-empty">
+                  <span>点击上方“创建新绘画”后</span>
+                  <span>这里会显示新的历史对话</span>
+                </div>
+              )}
+            </div>
+          </section>
         </div>
 
         <div className="sidebar-footer">
-          <div className="support-links">
-            <a href="#">HELP</a>
-            <a href="#">STATUS</a>
+          <div className="sidebar-meta">
+            <a href={BACKEND_HINT} target="_blank" rel="noreferrer" className="sidebar-meta-link">
+              <img src={SIDEBAR_HELP_ICON} alt="" className="sidebar-meta-icon" />
+              HELP
+            </a>
+            <a href="#" className="sidebar-meta-link">
+              <img src={SIDEBAR_STATUS_ICON} alt="" className="sidebar-meta-icon sidebar-meta-icon-status" />
+              STATUS
+            </a>
           </div>
 
-          <div className="profile-card">
-            <div className="avatar">C</div>
+          <div className="profile">
+            <div className="profile-avatar">
+              <img src={SIDEBAR_AVATAR} alt="" className="profile-avatar-image" />
+            </div>
             <div>
-              <p>Core Admin</p>
-              <span>Level 7 Access</span>
+              <p>{auth?.key_hint || "key-mockui-****"}</p>
+              <span>Scene Paint Mode</span>
             </div>
           </div>
         </div>
@@ -69,87 +485,193 @@ export default function Home() {
 
       <section className="workspace">
         <header className="topbar">
-          <div className="topbar-left">
+          <div className="topbar-group">
             <h1>Studio Precision</h1>
-            <nav className="top-nav">
+            <nav className="topnav">
               <a href="#">Gallery</a>
-              <a href="#" className="is-active">
+              <a href="#" className="active">
                 Model Lab
               </a>
               <a href="#">Community</a>
             </nav>
           </div>
 
-          <div className="topbar-actions">
-            <button aria-label="messages" className="icon-button">
-              <span className="icon-circle" />
+          <div className="topbar-icons">
+            <button
+              aria-label="messages"
+              className="topbar-icon topbar-icon-chat"
+            >
+              <img src={TOPBAR_MESSAGE_ICON} alt="" className="topbar-icon-image topbar-icon-image-chat" />
             </button>
-            <button aria-label="notifications" className="icon-button bell">
-              <span className="icon-bell" />
+            <button
+              aria-label="notifications"
+              className="topbar-icon topbar-icon-bell"
+            >
+              <img src={TOPBAR_BELL_ICON} alt="" className="topbar-icon-image topbar-icon-image-bell" />
             </button>
           </div>
         </header>
 
-        <div className="workspace-gradient" />
+        <div className="right-overlay" />
 
-        <section className="hero-stack">
-          <div className="status-card glass-panel">
-            <div className="status-pill">ASSET ANALYZER 70%</div>
-            <p className="status-line">已经理解编辑意图</p>
-            <p className="status-line">识别为风格迁移任务</p>
-            <div className="step-list">
-              {commandSteps.map((step) => (
-                <div key={step.title} className="step-item">
-                  <div className="step-star" />
-                  <div>
-                    <p>{step.title}</p>
-                    <span>{step.detail}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
+        <section className="scene-banner">
+          <div className="scene-banner-copy">
+            <span className="panel-kicker">SCENE</span>
+            <strong>场景绘画</strong>
+            <span>{sessionId ? `Scene: ${sessionId.slice(0, 16)}...` : "点击左上角“创建新绘画”即可进入场景绘画"}</span>
           </div>
-
-          <div className="content-block">
-            <div className="section-label">
-              <span />
-              VOID INTELLIGENCE
-            </div>
-
-            <div className="portrait-card">
-              <div className="portrait-image" />
-              <div className="portrait-glow" />
-            </div>
+          <div className="scene-banner-status">
+            <span>{statusText}</span>
+            {requestError ? <em>{requestError}</em> : null}
           </div>
         </section>
 
-        <section className="prompt-dock">
-          <div className="dock-background" />
-          <div className="prompt-box">
-            <div className="prompt-input">Ask anything...</div>
+        <section className="chat-stream">
+          {messages.map((message) => {
+            const isUser = message.role === "user";
+            const isWelcomeMessage = message.id === "assistant-welcome";
 
-            <div className="prompt-toolbar">
-              <button className="toolbar-square" aria-label="add">
-                +
+            return (
+              <article
+                key={message.id}
+                className={
+                  isUser
+                    ? "message message-user"
+                    : isWelcomeMessage
+                      ? "message message-welcome"
+                      : "message"
+                }
+              >
+                <div className={isUser ? "message-label message-label-user" : "message-label"}>
+                  {!isUser ? <span className="message-dot" /> : null}
+                  <span>{message.label}</span>
+                  {isUser ? <span className="message-dot user-dot" /> : null}
+                </div>
+
+                {isUser ? (
+                  <div className="user-stack">
+                    {message.imageUrl ? (
+                      <div className="reference-card">
+                        <div className="reference-preview">
+                          <img
+                            src={message.imageUrl}
+                            alt="reference"
+                            className="reference-image"
+                          />
+                          <div className="reference-meta">
+                            <span>REFERENCE</span>
+                            <strong>Source Image</strong>
+                            <small>{message.imageUrl.slice(0, 40)}...</small>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className="user-bubble">{message.text}</div>
+                  </div>
+                ) : (
+                  <div
+                    className={
+                      isWelcomeMessage
+                        ? "assistant-response assistant-response-welcome"
+                        : "assistant-response"
+                    }
+                  >
+                    <div className="assistant-copy">{message.text}</div>
+                    {message.imageUrl ? (
+                      <div className="assistant-image-frame">
+                        <img
+                          src={message.imageUrl}
+                          alt="generated result"
+                          className="assistant-image"
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </section>
+
+        <section className="command-zone">
+          <div className="suggestions">
+            {visibleSuggestions.map((item) => (
+              <button
+                key={`${item.title}-${item.recId}`}
+                className="suggestion-card"
+                onClick={() =>
+                  void handleSend({
+                    selectedRecId: item.recId || undefined,
+                    displayText: item.title,
+                  })
+                }
+                disabled={!sessionId || isStreaming}
+              >
+                <div className="suggestion-title">
+                  <SuggestionIcon accent={item.accent} />
+                  <span>{item.title}</span>
+                </div>
+                <div className="suggestion-subtitle">{item.subtitle}</div>
               </button>
+            ))}
+          </div>
 
-              <div className="toolbar-modes">
-                {modeButtons.map((label) => (
-                  <button key={label} className="mode-chip">
-                    <span className="mode-spark" />
-                    {label}
-                    <span className="mode-caret" />
-                  </button>
-                ))}
+          <div className="composer-glow" />
+          <div className="composer">
+            <div className="composer-input">
+              {sessionId ? "输入编辑指令，系统会通过 SSE 实时返回执行进度..." : "点击左上角“创建新绘画”后即可开始编辑..."}
+            </div>
+
+            <div className="composer-toolbar">
+              <div className="composer-left">
+                <button className="add-button" aria-label="refresh session" onClick={() => void (sessionId ? refreshSession(sessionId) : Promise.resolve())}>
+                  +
+                </button>
+
+                <div className="mode-row">
+                  {modeButtons.map((mode) => (
+                    <button key={mode} className="mode-button" type="button">
+                      <span className="mode-icon" />
+                      <span>{mode}</span>
+                      <span className="mode-caret" />
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              <div className="toolbar-actions">
-                <button className="voice-button">
-                  <span className="voice-wave" />
-                  Voice
-                </button>
-                <button className="send-button" aria-label="send">
-                  <span className="send-arrow" />
+              <div className="composer-right">
+                <input
+                  className="command-input"
+                  value={userCmd}
+                  onChange={(event) => setUserCmd(event.target.value)}
+                  placeholder="例如：增强霓虹感，保留主体构图"
+                  disabled={!sessionId || isStreaming}
+                />
+
+                {activeTurnId ? (
+                  <button className="voice-button" type="button" onClick={handleCancel}>
+                    <span className="voice-icon" />
+                    Cancel
+                  </button>
+                ) : (
+                  <button className="voice-button" type="button">
+                    <span className="voice-icon" />
+                    Voice
+                  </button>
+                )}
+
+                <button
+                  className="send-button"
+                  aria-label="send"
+                  type="button"
+                  onClick={() => void handleSend()}
+                  disabled={!sessionId || isStreaming}
+                >
+                  <span className="send-button-shadow" />
+                  <span className="send-icon-wrap">
+                    <img src={SEND_BUTTON_ICON} alt="" className="send-icon-image" />
+                  </span>
                 </button>
               </div>
             </div>
