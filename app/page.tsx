@@ -127,22 +127,31 @@ const IMAGE_UPLOAD_API_URL =
   process.env.NEXT_PUBLIC_IMAGE_UPLOAD_API_URL ||
   "https://bluepixel.vivo.com.cn/api/upload-image";
 const TEST_API_KEY = "key-mockui-yZaAbBcCdDeEfFgG";
-const TOPBAR_MESSAGE_ICON =
-  "https://www.figma.com/api/mcp/asset/5b754da6-8524-4ebd-a517-c5c3445c6d22";
-const TOPBAR_BELL_ICON =
-  "https://www.figma.com/api/mcp/asset/c731baa3-48ad-4b47-ad88-797929916d7d";
-const SEND_BUTTON_ICON =
-  "https://www.figma.com/api/mcp/asset/45e01f86-942b-45ad-8f48-c11803f0559e";
-const COMPOSER_ADD_ICON =
-  "https://www.figma.com/api/mcp/asset/98c1b035-fdbb-4fa6-bbbc-53bedbb60fe7";
-const COMPOSER_WEB_ICON =
-  "https://www.figma.com/api/mcp/asset/c2e80be1-97dd-4df7-beff-05a58da5bf14";
-const COMPOSER_THINKING_ICON =
-  "https://www.figma.com/api/mcp/asset/09e5c101-49fb-45a2-b168-8ff4c52353bf";
-const COMPOSER_SEND_ICON =
-  "https://www.figma.com/api/mcp/asset/f4cd65f9-a4ce-494c-afbd-5c5f2c1e461c";
-const SIDEBAR_AVATAR =
-  "https://www.figma.com/api/mcp/asset/0448d584-9c63-498d-97e3-6972835894bb";
+const makeSvgIcon = (svg: string) => `data:image/svg+xml,${encodeURIComponent(svg)}`;
+const TOPBAR_MESSAGE_ICON = makeSvgIcon(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"><path d="M4 6.5A3.5 3.5 0 0 1 7.5 3h9A3.5 3.5 0 0 1 20 6.5v6A3.5 3.5 0 0 1 16.5 16H10l-4.7 3.1A.85.85 0 0 1 4 18.4V6.5Z" stroke="#111827" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 8h8M8 11.5h5" stroke="#111827" stroke-width="1.8" stroke-linecap="round"/></svg>',
+);
+const TOPBAR_BELL_ICON = makeSvgIcon(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 24" fill="none"><path d="M10 21.5a2.6 2.6 0 0 0 2.5-1.9h-5A2.6 2.6 0 0 0 10 21.5Z" fill="#111827"/><path d="M3.2 9.5a6.8 6.8 0 1 1 13.6 0c0 5.4 1.7 6.6 1.7 6.6H1.5s1.7-1.2 1.7-6.6Z" stroke="#111827" stroke-width="1.8" stroke-linejoin="round"/></svg>',
+);
+const SEND_BUTTON_ICON = makeSvgIcon(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none"><rect x="5" y="5" width="10" height="10" rx="2.5" fill="#111827"/></svg>',
+);
+const COMPOSER_ADD_ICON = makeSvgIcon(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none"><path d="M8 2.5v11M2.5 8h11" stroke="#111827" stroke-width="2" stroke-linecap="round"/></svg>',
+);
+const COMPOSER_WEB_ICON = makeSvgIcon(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="8.5" stroke="#111827" stroke-width="1.8"/><path d="M2.8 11h16.4M11 2.5c2.2 2.2 3.3 5 3.3 8.5s-1.1 6.3-3.3 8.5c-2.2-2.2-3.3-5-3.3-8.5S8.8 4.7 11 2.5Z" stroke="#111827" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+);
+const COMPOSER_THINKING_ICON = makeSvgIcon(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 22" fill="none"><path d="M10 2.5A6.5 6.5 0 0 0 6.2 14.3V18h7.6v-3.7A6.5 6.5 0 0 0 10 2.5Z" stroke="#111827" stroke-width="1.8" stroke-linejoin="round"/><path d="M7.4 21h5.2M8 9.2l1.4 1.4L12.7 7" stroke="#111827" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+);
+const COMPOSER_SEND_ICON = makeSvgIcon(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none"><path d="M3.6 9.45 16.2 3.6a.7.7 0 0 1 .94.84l-3.72 12.38a.7.7 0 0 1-1.22.24l-3-3.82-3.7 2.12a.7.7 0 0 1-1.02-.75l.78-3.86-1.76-.06a.7.7 0 0 1-.25-1.24Z" fill="#111827"/><path d="m8.98 13.13 2.62-3.02" stroke="#ffffff" stroke-width="1.35" stroke-linecap="round" opacity=".72"/></svg>',
+);
+const SIDEBAR_AVATAR = makeSvgIcon(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72"><defs><linearGradient id="g" x1="10" x2="62" y1="62" y2="10" gradientUnits="userSpaceOnUse"><stop stop-color="#7dd3fc"/><stop offset=".55" stop-color="#dbeafe"/><stop offset="1" stop-color="#f8fafc"/></linearGradient></defs><rect width="72" height="72" rx="36" fill="url(#g)"/><path d="M23 43.5 33.6 21h7.8L30.8 43.5H23Zm15.2 7.5 10.6-22.5H56L45.4 51h-7.2Z" fill="#2563eb" opacity=".9"/></svg>',
+);
 const HIDE_ALL_RECOMMENDATIONS_KEY = "__all__";
 const TURN_PROGRESS_COPY = "智能体正在分析图片并在生成中";
 const RECOMMENDATION_POLL_INTERVAL_MS = 1500;
@@ -301,7 +310,7 @@ function buildMessagesFromTurns(turns: TurnRecord[], currentImgUrl?: string | nu
       id: "assistant-welcome",
       role: "assistant",
       label: AGENT_NAME,
-      text: "欢迎使用 VINS Agent。复制粘贴或者点击加号上传图片，随后可以通过自然语言继续进行多轮图像编辑。",
+      text: "欢迎使用 VINS Agent。复制粘贴、点击加号上传，或将图片拖入工作区开始。\n随后可以通过自然语言继续进行多轮图像编辑。",
     },
   ];
 
@@ -1752,7 +1761,13 @@ export default function Home() {
           </section>
         ) : null}
 
-        <section className="chat-stream">
+        <section
+          className={
+            !showUploadedPreview && !hasUserMessages
+              ? "chat-stream chat-stream-empty"
+              : "chat-stream"
+          }
+        >
           {messages.map((message) => {
             const isUser = message.role === "user";
             const isWelcomeMessage = message.id === "assistant-welcome";
