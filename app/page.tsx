@@ -24,6 +24,7 @@ type TurnRecord = {
   user_cmd?: string | null;
   selected_rec_id?: string | null;
   resolved_cmd?: string | null;
+  thinking?: boolean | null;
   skip_intent?: boolean | null;
   result_type?: "execute" | "clarify" | string | null;
   clarify_question?: string | null;
@@ -532,7 +533,7 @@ export default function Home() {
   const messages = activeConversation?.messages ?? buildMessagesFromTurns([], "");
   const userCmd = activeConversation?.userCmd ?? "";
   const externalEnabled = false;
-  const thinkingEnabled = true;
+  const thinkingEnabled = activeConversation?.thinkingEnabled ?? true;
   const statusText = activeConversation?.statusText ?? "准备进入场景绘画";
   const activeTurnId = activeConversation?.activeTurnId ?? "";
   const activeTurnStatus = activeConversation?.activeTurnStatus ?? "";
@@ -1384,6 +1385,7 @@ export default function Home() {
     }
 
     const targetSessionId = sessionId;
+    const conversationThinkingEnabled = activeConversation?.thinkingEnabled ?? true;
 
     const typedCommand = userCmd.trim();
     const command = options?.displayText || typedCommand;
@@ -1456,6 +1458,7 @@ export default function Home() {
         body: JSON.stringify({
           user_cmd: selectedRecId ? null : command,
           selected_rec_id: selectedRecId,
+          thinking: conversationThinkingEnabled,
         }),
       });
 
@@ -2006,7 +2009,12 @@ export default function Home() {
                     className={thinkingEnabled ? "mode-button is-active" : "mode-button"}
                     type="button"
                     aria-pressed={thinkingEnabled}
-                    onClick={showPendingModeNotice}
+                    onClick={() =>
+                      updateActiveConversation((conversation) => ({
+                        ...conversation,
+                        thinkingEnabled: !conversation.thinkingEnabled,
+                      }))
+                    }
                   >
                     <img
                       src={COMPOSER_THINKING_ICON}
