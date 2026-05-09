@@ -25,6 +25,7 @@ type TurnRecord = {
   selected_rec_id?: string | null;
   resolved_cmd?: string | null;
   thinking?: boolean | null;
+  use_web_search?: boolean | null;
   skip_intent?: boolean | null;
   result_type?: "execute" | "clarify" | string | null;
   clarify_question?: string | null;
@@ -532,7 +533,7 @@ export default function Home() {
   const dismissedRecommendationIds = activeConversation?.dismissedRecommendationIds ?? [];
   const messages = activeConversation?.messages ?? buildMessagesFromTurns([], "");
   const userCmd = activeConversation?.userCmd ?? "";
-  const externalEnabled = false;
+  const externalEnabled = activeConversation?.externalEnabled ?? false;
   const thinkingEnabled = activeConversation?.thinkingEnabled ?? true;
   const statusText = activeConversation?.statusText ?? "准备进入场景绘画";
   const activeTurnId = activeConversation?.activeTurnId ?? "";
@@ -1386,6 +1387,7 @@ export default function Home() {
 
     const targetSessionId = sessionId;
     const conversationThinkingEnabled = activeConversation?.thinkingEnabled ?? true;
+    const conversationExternalEnabled = activeConversation?.externalEnabled ?? false;
 
     const typedCommand = userCmd.trim();
     const command = options?.displayText || typedCommand;
@@ -1459,6 +1461,7 @@ export default function Home() {
           user_cmd: selectedRecId ? null : command,
           selected_rec_id: selectedRecId,
           thinking: conversationThinkingEnabled,
+          use_web_search: conversationExternalEnabled,
         }),
       });
 
@@ -1999,7 +2002,12 @@ export default function Home() {
                     className={externalEnabled ? "mode-button is-active" : "mode-button"}
                     type="button"
                     aria-pressed={externalEnabled}
-                    onClick={showPendingModeNotice}
+                    onClick={() =>
+                      updateActiveConversation((conversation) => ({
+                        ...conversation,
+                        externalEnabled: !conversation.externalEnabled,
+                      }))
+                    }
                   >
                     <img src={COMPOSER_WEB_ICON} alt="" className="mode-icon-image mode-icon-web" />
                     <span>搜索</span>
