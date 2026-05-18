@@ -501,8 +501,8 @@ function getQueueProgressPercent(status: string, position: number | null, size: 
 
 export default function Home() {
   const [auth, setAuth] = useState<AuthState | null>(null);
-  const [usernameInput, setUsernameInput] = useState("");
-  const [passwordInput, setPasswordInput] = useState("");
+  const [usernameInput, setUsernameInput] = useState("testuser");
+  const [passwordInput, setPasswordInput] = useState("test1234");
   const [authRequestError, setAuthRequestError] = useState("");
   const [conversations, setConversations] = useState<LocalConversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState("");
@@ -1727,6 +1727,7 @@ export default function Home() {
               <span className="panel-kicker">AUTH</span>
               <strong>登录</strong>
               <span>输入用户名和密码后，页面会自动创建一个空绘画会话。</span>
+              <span>测试账号: testuser / test1234</span>
             </div>
             <form
               className="auth-panel-form"
