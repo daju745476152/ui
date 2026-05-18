@@ -1082,7 +1082,7 @@ export default function Home() {
       const dataUrl = await readFileAsDataUrl(file);
       const uploadFormData = new FormData();
       uploadFormData.append("file", file);
-      const uploadResponse = await fetch(`${GATEWAY_BASE}/api/v1/agent/upload_image`, {
+      const uploadResponse = await fetch(`${GATEWAY_BASE}/api/v1/agent/upload`, {
         method: "POST",
         credentials: "include",
         body: uploadFormData,
