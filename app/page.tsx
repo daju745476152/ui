@@ -125,9 +125,6 @@ type SidebarIconName =
 const AGENT_NAME = "VINS Agent";
 const USER_NAME = "用户";
 const BACKEND_HINT = "https://bluepixel.vivo.com.cn";
-const IMAGE_UPLOAD_API_URL =
-  process.env.NEXT_PUBLIC_IMAGE_UPLOAD_API_URL ||
-  "https://bluepixel.vivo.com.cn/api/upload-image";
 const GATEWAY_BASE = process.env.NEXT_PUBLIC_GATEWAY_BASE_URL || "";
 const makeSvgIcon = (svg: string) => `data:image/svg+xml,${encodeURIComponent(svg)}`;
 const TOPBAR_MESSAGE_ICON = makeSvgIcon(
@@ -1085,18 +1082,18 @@ export default function Home() {
       const dataUrl = await readFileAsDataUrl(file);
       const uploadFormData = new FormData();
       uploadFormData.append("file", file);
-      const uploadResponse = await fetch(IMAGE_UPLOAD_API_URL, {
+      const uploadResponse = await fetch(`${GATEWAY_BASE}/api/v1/agent/upload-image`, {
         method: "POST",
+        credentials: "include",
         body: uploadFormData,
       });
-      const uploadPayload = (await uploadResponse.json().catch(() => ({ error: "上传失败" }))) as {
-        img_url?: string;
-        error?: string;
-      };
-
-      if (!uploadResponse.ok || !uploadPayload.img_url) {
-        throw new Error(uploadPayload.error || "图片上传失败");
+      if (!uploadResponse.ok) {
+        const uploadErr = await uploadResponse.json().catch(() => ({ detail: "上传失败" }));
+        throw new Error(uploadErr.detail || "图片上传失败");
       }
+      const uploadPayload = (await uploadResponse.json()) as {
+        img_url?: string;
+      };
 
       updateActiveConversation((conversation) => ({
         ...conversation,
