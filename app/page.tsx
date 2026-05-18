@@ -68,7 +68,7 @@ type TurnStartResponse = {
 
 type AuthState = {
   ok: boolean;
-  key_hint?: string;
+  username?: string;
   error?: string;
 };
 
@@ -128,7 +128,7 @@ const BACKEND_HINT = "https://bluepixel.vivo.com.cn";
 const IMAGE_UPLOAD_API_URL =
   process.env.NEXT_PUBLIC_IMAGE_UPLOAD_API_URL ||
   "https://bluepixel.vivo.com.cn/api/upload-image";
-const TEST_API_KEY = "key-mockui-yZaAbBcCdDeEfFgG";
+const GATEWAY_BASE = process.env.NEXT_PUBLIC_GATEWAY_BASE_URL || "";
 const makeSvgIcon = (svg: string) => `data:image/svg+xml,${encodeURIComponent(svg)}`;
 const TOPBAR_MESSAGE_ICON = makeSvgIcon(
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"><path d="M4 6.5A3.5 3.5 0 0 1 7.5 3h9A3.5 3.5 0 0 1 20 6.5v6A3.5 3.5 0 0 1 16.5 16H10l-4.7 3.1A.85.85 0 0 1 4 18.4V6.5Z" stroke="#111827" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 8h8M8 11.5h5" stroke="#111827" stroke-width="1.8" stroke-linecap="round"/></svg>',
@@ -246,7 +246,7 @@ function buildImageDownloadHref(imageUrl: string) {
     url: imageUrl,
   });
 
-  return `/api/download-image?${params.toString()}`;
+  return `${GATEWAY_BASE}/web/download-image?${params.toString()}`;
 }
 
 function buildUploadMessage(imageUrl: string): ChatMessage {
@@ -501,7 +501,8 @@ function getQueueProgressPercent(status: string, position: number | null, size: 
 
 export default function Home() {
   const [auth, setAuth] = useState<AuthState | null>(null);
-  const [apiKeyInput, setApiKeyInput] = useState(TEST_API_KEY);
+  const [usernameInput, setUsernameInput] = useState("");
+  const [passwordInput, setPasswordInput] = useState("");
   const [authRequestError, setAuthRequestError] = useState("");
   const [conversations, setConversations] = useState<LocalConversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState("");
@@ -607,18 +608,21 @@ export default function Home() {
 
     async function loadAuth() {
       try {
-        const response = await fetch("/api/auth/me", { cache: "no-store" });
+        const response = await fetch(`${GATEWAY_BASE}/web/me`, { cache: "no-store", credentials: "include" });
 
-        if (!response.ok) {
+        if (response.ok) {
+          const user = await response.json();
           if (!ignore) {
-            setAuth({ ok: false, error: "请先输入 API Key 登录" });
+            setAuth({ ok: true, username: user.username });
           }
-          return;
-        }
-
-        const payload = (await response.json()) as AuthState;
-        if (!ignore) {
-          setAuth(payload);
+        } else if (response.status === 401) {
+          if (!ignore) {
+            setAuth({ ok: false, error: "未登录" });
+          }
+        } else {
+          if (!ignore) {
+            setAuth({ ok: false, error: "登录状态检查失败" });
+          }
         }
       } catch {
         if (!ignore) {
@@ -640,16 +644,22 @@ export default function Home() {
     setIsCreating(true);
 
     try {
-      const response = await fetch("/api/conversations", {
+      const response = await fetch(`${GATEWAY_BASE}/api/v1/agent/conversations`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({}),
       });
 
-      const payload = (await response.json()) as SessionResponse & { error?: string };
       if (!response.ok) {
-        throw new Error(payload.error || "创建会话失败");
+        if (response.status === 401) {
+          throw new Error("未登录，请先登录");
+        }
+        const err = await response.json().catch(() => ({ detail: "创建会话失败" }));
+        throw new Error(err.detail || "创建会话失败");
       }
+
+      const payload = (await response.json()) as SessionResponse;
 
       setSessionCounter(nextIndex);
       const localId = `local-${payload.session_id}`;
@@ -840,7 +850,7 @@ export default function Home() {
   const uploadedPreviewImageUrl = uploadedImageUrl || originalImageUrl || currentImageUrl;
 
   async function refreshSession(id: string) {
-    const response = await fetch(`/api/conversations/${id}`, { cache: "no-store" });
+    const response = await fetch(`${GATEWAY_BASE}/api/v1/agent/conversations/${id}`, { cache: "no-store", credentials: "include" });
     if (!response.ok) {
       return null;
     }
@@ -881,7 +891,7 @@ export default function Home() {
   // Does NOT touch messages, currentImageUrl, dismissedRecommendationIds, or turn state.
   // Use this instead of refreshSession whenever only recommendation data is needed.
   async function refreshRecommendationsOnly(id: string) {
-    const response = await fetch(`/api/conversations/${id}`, { cache: "no-store" });
+    const response = await fetch(`${GATEWAY_BASE}/api/v1/agent/conversations/${id}`, { cache: "no-store", credentials: "include" });
     if (!response.ok) return null;
     const payload = (await response.json()) as SessionResponse;
     updateConversationBySessionId(id, (conversation) => ({
@@ -955,39 +965,53 @@ export default function Home() {
   }, [hasBoundImage, recommendationStatus, sessionId]);
 
   async function syncAuthState() {
-    const response = await fetch("/api/auth/me", { cache: "no-store" });
-    const payload = (await response.json().catch(() => ({ ok: false }))) as AuthState;
+    const response = await fetch(`${GATEWAY_BASE}/web/me`, { cache: "no-store", credentials: "include" });
 
-    if (!response.ok) {
-      throw new Error(payload.error || "登录失败");
+    if (response.ok) {
+      const user = await response.json();
+      setAuth({ ok: true, username: user.username });
+      setAuthRequestError("");
+      initializedSessionRef.current = false;
+    } else if (response.status === 401) {
+      throw new Error("未登录");
+    } else {
+      const err = await response.json().catch(() => ({ detail: "登录状态检查失败" }));
+      throw new Error(err.detail || "登录状态检查失败");
     }
-
-    setAuth(payload);
-    setAuthRequestError("");
-    initializedSessionRef.current = false;
   }
 
   async function handleLogin() {
-    if (!apiKeyInput || isAuthenticating) return;
+    if (!usernameInput || !passwordInput || isAuthenticating) return;
 
     setIsAuthenticating(true);
     setAuthRequestError("");
 
     try {
-      const response = await fetch("/api/auth/verify", {
+      const formData = new FormData();
+      formData.append("username", usernameInput);
+      formData.append("password", passwordInput);
+
+      const response = await fetch(`${GATEWAY_BASE}/web/login`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ api_key: apiKeyInput }),
+        credentials: "include",
+        body: formData,
       });
 
-      const payload = await response.json().catch(() => ({ error: "登录失败" }));
-      if (!response.ok) {
-        throw new Error(payload.error || "登录失败");
+      if (response.ok) {
+        const user = await response.json();
+        setAuth({ ok: true, username: user.username });
+        setAuthRequestError("");
+        initializedSessionRef.current = false;
+      } else if (response.status === 401) {
+        throw new Error("用户名或密码错误");
+      } else if (response.status === 429) {
+        throw new Error("登录失败次数过多，请稍后再试");
+      } else {
+        const err = await response.json().catch(() => ({ detail: "登录失败" }));
+        throw new Error(err.detail || "登录失败");
       }
-
-      await syncAuthState();
     } catch (error) {
-      setAuth({ ok: false, error: "请先输入 API Key 登录" });
+      setAuth({ ok: false, error: "登录失败" });
       setAuthRequestError(error instanceof Error ? error.message : "登录失败");
     } finally {
       setIsAuthenticating(false);
@@ -995,9 +1019,9 @@ export default function Home() {
   }
 
   async function handleLogout() {
-    await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+    await fetch(`${GATEWAY_BASE}/web/logout`, { method: "POST", credentials: "include" }).catch(() => undefined);
     initializedSessionRef.current = false;
-    setAuth({ ok: false, error: "请先输入 API Key 登录" });
+    setAuth({ ok: false, error: "未登录" });
     setConversations([]);
     setActiveConversationId("");
     setSessionCounter(0);
@@ -1092,14 +1116,15 @@ export default function Home() {
         statusText: "正在绑定图片",
       }));
 
-      const bindResponse = await fetch(`/api/conversations/${targetSessionId}/image`, {
+      const bindResponse = await fetch(`${GATEWAY_BASE}/api/v1/agent/conversations/${targetSessionId}/image`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ img_url: uploadPayload.img_url }),
       });
-      const bindPayload = await bindResponse.json().catch(() => ({ error: "绑定图片失败" }));
       if (!bindResponse.ok) {
-        throw new Error(bindPayload.error || "绑定图片失败");
+        const bindPayload = await bindResponse.json().catch(() => ({ detail: "绑定图片失败" }));
+        throw new Error(bindPayload.detail || "绑定图片失败");
       }
 
       // Kick off recommendation generation; the recommendation polling useEffect
@@ -1108,20 +1133,21 @@ export default function Home() {
         ...conversation,
         statusText: "图片已绑定，正在启动推荐生成",
       }));
-      const recommendResponse = await fetch(`/api/conversations/${targetSessionId}/recommend`, {
+      const recommendResponse = await fetch(`${GATEWAY_BASE}/api/v1/agent/conversations/${targetSessionId}/recommend`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ img_url: uploadPayload.img_url }),
       });
       if (!recommendResponse.ok) {
         const recommendPayload = await recommendResponse
           .json()
-          .catch(() => ({ error: "推荐任务启动失败" }));
+          .catch(() => ({ detail: "推荐任务启动失败" }));
         startedRecommendationSessionsRef.current.delete(targetSessionId);
         updateConversationBySessionId(targetSessionId, (conversation) => ({
           ...conversation,
           recommendationStatus: "failed",
-          requestError: recommendPayload.error || "推荐任务启动失败",
+          requestError: recommendPayload.detail || "推荐任务启动失败",
           statusText: "推荐生成失败",
         }));
         return;
@@ -1257,15 +1283,20 @@ export default function Home() {
           await wait(TURN_POLL_INTERVAL_MS);
         }
 
-        const response = await fetch(`/api/conversations/${session}/turns/${turnId}`, {
+        const response = await fetch(`${GATEWAY_BASE}/api/v1/agent/conversations/${session}/turns/${turnId}`, {
           cache: "no-store",
+          credentials: "include",
         });
-        const payload = (await response.json().catch(() => ({
-          error: "查询执行结果失败",
-        }))) as TurnResponse;
 
-        if (!response.ok || !payload.turn) {
-          throw new Error(payload.error || "查询执行结果失败");
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({ detail: "查询执行结果失败" }));
+          throw new Error(err.detail || "查询执行结果失败");
+        }
+
+        const payload = (await response.json()) as TurnResponse;
+
+        if (!payload.turn) {
+          throw new Error("查询执行结果失败");
         }
 
         const { turn } = payload;
@@ -1454,9 +1485,10 @@ export default function Home() {
     }));
 
     try {
-      const response = await fetch(`/api/conversations/${targetSessionId}/turns`, {
+      const response = await fetch(`${GATEWAY_BASE}/api/v1/agent/conversations/${targetSessionId}/turns`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           user_cmd: selectedRecId ? null : command,
           selected_rec_id: selectedRecId,
@@ -1466,16 +1498,14 @@ export default function Home() {
       });
 
       if (!response.ok) {
-        const payload = await response.json().catch(() => ({ error: "请求失败" }));
-        throw new Error(payload.error || "执行失败");
+        const err = await response.json().catch(() => ({ detail: "请求失败" }));
+        throw new Error(err.detail || "执行失败");
       }
 
-      const payload = (await response.json().catch(() => ({
-        error: "任务启动失败",
-      }))) as TurnStartResponse;
+      const payload = (await response.json()) as TurnStartResponse;
 
       if (!payload.turn_id) {
-        throw new Error(payload.error || "任务启动失败");
+        throw new Error("任务启动失败");
       }
 
       updateConversationBySessionId(targetSessionId, (conversation) => ({
@@ -1516,22 +1546,20 @@ export default function Home() {
     if (!sessionId || !activeTurnId) return;
 
     try {
-      const response = await fetch(`/api/conversations/${sessionId}/turns/${activeTurnId}/cancel`, {
+      const response = await fetch(`${GATEWAY_BASE}/api/v1/agent/conversations/${sessionId}/turns/${activeTurnId}/cancel`, {
         method: "POST",
+        credentials: "include",
       });
-      const payload = (await response.json().catch(() => ({
-        ok: false,
-        message: "取消失败",
-      }))) as { ok?: boolean; message?: string; error?: string };
 
       if (!response.ok) {
-        throw new Error(payload.error || payload.message || "取消失败");
+        const err = await response.json().catch(() => ({ detail: "取消失败" }));
+        throw new Error(err.detail || "取消失败");
       }
 
       updateConversationBySessionId(sessionId, (conversation) => ({
         ...conversation,
-        requestError: payload.ok ? "" : payload.message || "当前任务暂不支持立即取消",
-        statusText: payload.message || (payload.ok ? "已发送取消请求" : "当前任务暂不支持立即取消"),
+        requestError: "",
+        statusText: "已发送取消请求",
       }));
     } catch (error) {
       updateConversationBySessionId(sessionId, (conversation) => ({
@@ -1639,9 +1667,12 @@ export default function Home() {
             </div>
           </div>
           {auth?.ok ? (
-            <button type="button" className="profile-logout" onClick={() => void handleLogout()}>
-              退出
-            </button>
+            <div className="sidebar-footer-user">
+              <span className="profile-username">{auth.username}</span>
+              <button type="button" className="profile-logout" onClick={() => void handleLogout()}>
+                退出
+              </button>
+            </div>
           ) : null}
         </div>
       </aside>
@@ -1694,8 +1725,8 @@ export default function Home() {
           <section className="auth-panel">
             <div className="auth-panel-copy">
               <span className="panel-kicker">AUTH</span>
-              <strong>连接最新版后端 API</strong>
-              <span>输入 API Key 后，页面会自动创建一个空绘画会话。</span>
+              <strong>登录</strong>
+              <span>输入用户名和密码后，页面会自动创建一个空绘画会话。</span>
             </div>
             <form
               className="auth-panel-form"
@@ -1706,9 +1737,16 @@ export default function Home() {
             >
               <input
                 className="auth-input"
-                value={apiKeyInput}
-                onChange={(event) => setApiKeyInput(event.target.value)}
-                placeholder="输入 API Key"
+                value={usernameInput}
+                onChange={(event) => setUsernameInput(event.target.value)}
+                placeholder="用户名"
+              />
+              <input
+                className="auth-input"
+                type="password"
+                value={passwordInput}
+                onChange={(event) => setPasswordInput(event.target.value)}
+                placeholder="密码"
               />
               <button
                 type="submit"
