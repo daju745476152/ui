@@ -168,7 +168,7 @@ type SidebarIconName =
 const AGENT_NAME = "VINS Agent";
 const USER_NAME = "用户";
 const BACKEND_HINT = "https://bluepixel.vivo.com.cn";
-const GATEWAY_BASE = process.env.NEXT_PUBLIC_GATEWAY_BASE_URL || "";
+const GATEWAY_BASE = process.env.NEXT_PUBLIC_GATEWAY_BASE_URL || "https://bluepixel.vivo.com.cn";
 const makeSvgIcon = (svg: string) => `data:image/svg+xml,${encodeURIComponent(svg)}`;
 const TOPBAR_MESSAGE_ICON = makeSvgIcon(
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"><path d="M4 6.5A3.5 3.5 0 0 1 7.5 3h9A3.5 3.5 0 0 1 20 6.5v6A3.5 3.5 0 0 1 16.5 16H10l-4.7 3.1A.85.85 0 0 1 4 18.4V6.5Z" stroke="#111827" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 8h8M8 11.5h5" stroke="#111827" stroke-width="1.8" stroke-linecap="round"/></svg>',
