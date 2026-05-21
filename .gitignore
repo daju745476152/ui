@@ -12,3 +12,5 @@ dev-out.log
 dev-err.log
 
 .vercel
+
+tsconfig.tsbuildinfo

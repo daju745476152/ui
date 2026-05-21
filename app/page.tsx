@@ -577,6 +577,7 @@ export default function Home() {
   });
   const [previewImageUrl, setPreviewImageUrl] = useState("");
   const [modeNoticeVisible, setModeNoticeVisible] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
@@ -1897,7 +1898,12 @@ export default function Home() {
         onChange={handleFileChange}
       />
 
-      <aside className="sidebar">
+      <div
+        className={`sidebar-backdrop${sidebarOpen ? " is-visible" : ""}`}
+        onClick={() => setSidebarOpen(false)}
+      />
+
+      <aside className={`sidebar${sidebarOpen ? " is-open" : ""}`}>
         <div className="sidebar-main">
           <div className="brand">
             <div className="brand-avatar">
@@ -1912,7 +1918,7 @@ export default function Home() {
             <button
               type="button"
               className="sidebar-nav-item"
-              onClick={handleCreateEntry}
+              onClick={() => { handleCreateEntry(); setSidebarOpen(false); }}
               disabled={isCreating || isTurnBusy || !auth?.ok}
             >
               <SidebarIcon name="new" />
@@ -1923,7 +1929,7 @@ export default function Home() {
             <button
               type="button"
               className={isAgentWorkspace ? "sidebar-nav-item sidebar-nav-item-active" : "sidebar-nav-item"}
-              onClick={() => setActiveWorkspace("agent")}
+              onClick={() => { setActiveWorkspace("agent"); setSidebarOpen(false); }}
             >
               <SidebarIcon name="spark" />
               <span>AI 创作</span>
@@ -1942,7 +1948,7 @@ export default function Home() {
                   ? "sidebar-nav-item sidebar-nav-subitem sidebar-nav-item-active"
                   : "sidebar-nav-item sidebar-nav-subitem"
               }
-              onClick={() => setActiveWorkspace("cosplay")}
+              onClick={() => { setActiveWorkspace("cosplay"); setSidebarOpen(false); }}
             >
               <SidebarIcon name="spark" />
               <span>cosplay 姿势推荐</span>
@@ -1968,6 +1974,7 @@ export default function Home() {
                       onClick={() => {
                         setActiveWorkspace("agent");
                         setActiveConversationId(conversation.id);
+                        setSidebarOpen(false);
                       }}
                     >
                       <span className="history-item-icon">
@@ -2007,7 +2014,7 @@ export default function Home() {
           {auth?.ok ? (
             <div className="sidebar-footer-user">
               <span className="profile-username">{auth.username}</span>
-              <button type="button" className="profile-logout" onClick={() => void handleLogout()}>
+              <button type="button" className="profile-logout" onClick={() => { setSidebarOpen(false); void handleLogout(); }}>
                 退出
               </button>
             </div>
@@ -2024,6 +2031,16 @@ export default function Home() {
       >
         <header className="topbar">
           <div className="topbar-group">
+            <button
+              type="button"
+              className="hamburger"
+              onClick={() => setSidebarOpen((v) => !v)}
+              aria-label="打开导航"
+            >
+              <span className="hamburger-line" />
+              <span className="hamburger-line" />
+              <span className="hamburger-line" />
+            </button>
             <h1>{isCosplayWorkspace ? "Cosplay Style" : "BluePixel Studio"}</h1>
             <nav className="topnav">
               <a href="#">Gallery</a>
