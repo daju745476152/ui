@@ -4,6 +4,7 @@ import type { NextConfig } from "next";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const gatewayBaseUrl = process.env.NEXT_PUBLIC_GATEWAY_BASE_URL || "https://bluepixel.vivo.com.cn";
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: __dirname,
@@ -11,11 +12,11 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/web/:path*",
-        destination: "http://localhost:8001/web/:path*",
+        destination: `${gatewayBaseUrl}/web/:path*`,
       },
       {
         source: "/api/v1/:path*",
-        destination: "http://localhost:8001/api/v1/:path*",
+        destination: `${gatewayBaseUrl}/api/v1/:path*`,
       },
     ];
   },

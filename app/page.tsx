@@ -72,6 +72,49 @@ type AuthState = {
   error?: string;
 };
 
+type WorkspaceMode = "agent" | "cosplay";
+type CosplayStatus = "idle" | "uploading" | "queued" | "running" | "succeeded" | "failed";
+
+type CosplayState = {
+  inputPreviewUrl: string;
+  inputFileName: string;
+  uploadedImgUrl: string;
+  resultImgUrls: string[];
+  status: CosplayStatus;
+  taskId: string;
+  queuePosition: number | null;
+  queueSize: number | null;
+  progressStage: string;
+  progressPercent: number | null;
+  error: string;
+};
+
+type StyleTaskStartResponse = {
+  task_id?: string;
+  status?: "queued" | "running" | string;
+  queue_position?: number | null;
+  queue_size?: number | null;
+  message?: string;
+  created_at?: string;
+};
+
+type StyleTaskPollResponse = {
+  status?: "queued" | "running" | "success" | "failed" | string;
+  queue_position?: number | null;
+  queue_size?: number | null;
+  message?: string;
+  error?: string;
+  progress?: {
+    stage?: string;
+    percent?: number;
+  };
+  result?: {
+    output?: {
+      img_urls?: string[];
+    };
+  };
+};
+
 type ChatMessage =
   | {
       id: string;
@@ -157,6 +200,8 @@ const RECOMMENDATION_POLL_INTERVAL_MS = 1500;
 const RECOMMENDATION_POLL_MAX_ATTEMPTS = 40;
 const TURN_POLL_INTERVAL_MS = 1500;
 const TURN_POLL_MAX_ATTEMPTS = 120;
+const COSPLAY_POLL_INTERVAL_MS = 2000;
+const COSPLAY_POLL_MAX_ATTEMPTS = 150;
 const BUILD_COMMIT_SHA =
   process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA?.slice(0, 7) || "dev-local";
 
@@ -243,7 +288,23 @@ function buildImageDownloadHref(imageUrl: string) {
     url: imageUrl,
   });
 
-  return `${GATEWAY_BASE}/web/download-image?${params.toString()}`;
+  return `${getGatewayRequestBaseUrl()}/web/download-image?${params.toString()}`;
+}
+
+function shouldUseSameOriginGateway() {
+  if (
+    typeof window !== "undefined" &&
+    window.location.port === "3000" &&
+    (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function getGatewayRequestBaseUrl() {
+  return shouldUseSameOriginGateway() ? "" : GATEWAY_BASE;
 }
 
 function buildUploadMessage(imageUrl: string): ChatMessage {
@@ -498,9 +559,10 @@ function getQueueProgressPercent(status: string, position: number | null, size: 
 
 export default function Home() {
   const [auth, setAuth] = useState<AuthState | null>(null);
-  const [usernameInput, setUsernameInput] = useState("testuser");
-  const [passwordInput, setPasswordInput] = useState("test1234");
+  const [usernameInput, setUsernameInput] = useState("");
+  const [passwordInput, setPasswordInput] = useState("");
   const [authRequestError, setAuthRequestError] = useState("");
+  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceMode>("agent");
   const [conversations, setConversations] = useState<LocalConversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState("");
   const [sessionCounter, setSessionCounter] = useState(0);
@@ -508,6 +570,19 @@ export default function Home() {
   const [isCreating, setIsCreating] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [cosplay, setCosplay] = useState<CosplayState>({
+    inputPreviewUrl: "",
+    inputFileName: "",
+    uploadedImgUrl: "",
+    resultImgUrls: [],
+    status: "idle",
+    taskId: "",
+    queuePosition: null,
+    queueSize: null,
+    progressStage: "",
+    progressPercent: null,
+    error: "",
+  });
   const [previewImageUrl, setPreviewImageUrl] = useState("");
   const [modeNoticeVisible, setModeNoticeVisible] = useState(false);
 
@@ -539,6 +614,10 @@ export default function Home() {
   const activeQueuePosition = activeConversation?.activeQueuePosition ?? null;
   const activeQueueSize = activeConversation?.activeQueueSize ?? null;
   const requestError = activeConversation?.requestError ?? "";
+  const isAgentWorkspace = activeWorkspace === "agent";
+  const isCosplayWorkspace = activeWorkspace === "cosplay";
+  const isCosplayBusy =
+    cosplay.status === "uploading" || cosplay.status === "queued" || cosplay.status === "running";
   const hasBoundImage = Boolean(originalImageUrl);
   const hasActiveTurn = Boolean(activeTurnId);
   const isTurnBusy = isStreaming || hasActiveTurn;
@@ -605,7 +684,7 @@ export default function Home() {
 
     async function loadAuth() {
       try {
-        const response = await fetch(`${GATEWAY_BASE}/web/me`, { cache: "no-store", credentials: "include" });
+        const response = await fetch(`${getGatewayRequestBaseUrl()}/web/me`, { cache: "no-store", credentials: "include" });
 
         if (response.ok) {
           const user = await response.json();
@@ -641,7 +720,7 @@ export default function Home() {
     setIsCreating(true);
 
     try {
-      const response = await fetch(`${GATEWAY_BASE}/api/v1/agent/conversations`, {
+      const response = await fetch(`${getGatewayRequestBaseUrl()}/api/v1/agent/conversations`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -718,13 +797,19 @@ export default function Home() {
   }
 
   useEffect(() => {
-    if (!auth?.ok || initializedSessionRef.current) {
+    if (!auth?.ok || activeWorkspace !== "agent" || isCreating) {
+      return;
+    }
+
+    if (initializedSessionRef.current && conversations.length > 0) {
       return;
     }
 
     initializedSessionRef.current = true;
-    void createEmptySession("图片处理 #1", 1);
-  }, [auth?.ok]);
+    if (conversations.length === 0) {
+      void createEmptySession("图片处理 #1", 1);
+    }
+  }, [activeWorkspace, auth?.ok, conversations.length, isCreating]);
 
   useEffect(() => {
     if (!previewImageUrl) {
@@ -845,9 +930,39 @@ export default function Home() {
     return "VOID_02.PNG";
   }, [uploadedFileName, uploadedImageUrl]);
   const uploadedPreviewImageUrl = uploadedImageUrl || originalImageUrl || currentImageUrl;
+  const cosplayStatusText =
+    cosplay.status === "uploading"
+      ? "正在上传图片"
+      : cosplay.status === "queued"
+        ? "任务排队中"
+      : cosplay.status === "running"
+        ? "正在生成 cosplay 姿势推荐"
+        : cosplay.status === "succeeded"
+          ? "cosplay姿势推荐已完成"
+          : cosplay.status === "failed"
+            ? "处理失败"
+            : "等待输入图片";
+  const cosplayQueueText = useMemo(() => {
+    if (cosplay.status === "queued") {
+      const position = cosplay.queuePosition;
+      const size = cosplay.queueSize;
+      if (typeof position === "number" && typeof size === "number" && size > 0) {
+        return `排队 ${position} / ${size}`;
+      }
+      if (typeof position === "number") {
+        return `排队 ${position}`;
+      }
+    }
+
+    return "";
+  }, [
+    cosplay.queuePosition,
+    cosplay.queueSize,
+    cosplay.status,
+  ]);
 
   async function refreshSession(id: string) {
-    const response = await fetch(`${GATEWAY_BASE}/api/v1/agent/conversations/${id}`, { cache: "no-store", credentials: "include" });
+    const response = await fetch(`${getGatewayRequestBaseUrl()}/api/v1/agent/conversations/${id}`, { cache: "no-store", credentials: "include" });
     if (!response.ok) {
       return null;
     }
@@ -888,7 +1003,7 @@ export default function Home() {
   // Does NOT touch messages, currentImageUrl, dismissedRecommendationIds, or turn state.
   // Use this instead of refreshSession whenever only recommendation data is needed.
   async function refreshRecommendationsOnly(id: string) {
-    const response = await fetch(`${GATEWAY_BASE}/api/v1/agent/conversations/${id}`, { cache: "no-store", credentials: "include" });
+    const response = await fetch(`${getGatewayRequestBaseUrl()}/api/v1/agent/conversations/${id}`, { cache: "no-store", credentials: "include" });
     if (!response.ok) return null;
     const payload = (await response.json()) as SessionResponse;
     updateConversationBySessionId(id, (conversation) => ({
@@ -962,7 +1077,7 @@ export default function Home() {
   }, [hasBoundImage, recommendationStatus, sessionId]);
 
   async function syncAuthState() {
-    const response = await fetch(`${GATEWAY_BASE}/web/me`, { cache: "no-store", credentials: "include" });
+    const response = await fetch(`${getGatewayRequestBaseUrl()}/web/me`, { cache: "no-store", credentials: "include" });
 
     if (response.ok) {
       const user = await response.json();
@@ -988,7 +1103,7 @@ export default function Home() {
       formData.append("username", usernameInput);
       formData.append("password", passwordInput);
 
-      const response = await fetch(`${GATEWAY_BASE}/web/login`, {
+      const response = await fetch(`${getGatewayRequestBaseUrl()}/web/login`, {
         method: "POST",
         credentials: "include",
         body: formData,
@@ -1016,7 +1131,7 @@ export default function Home() {
   }
 
   async function handleLogout() {
-    await fetch(`${GATEWAY_BASE}/web/logout`, { method: "POST", credentials: "include" }).catch(() => undefined);
+    await fetch(`${getGatewayRequestBaseUrl()}/web/logout`, { method: "POST", credentials: "include" }).catch(() => undefined);
     initializedSessionRef.current = false;
     setAuth({ ok: false, error: "未登录" });
     setConversations([]);
@@ -1027,17 +1142,31 @@ export default function Home() {
   function handleCreateEntry() {
     if (isCreating || isTurnBusy || isUploadingImage || !auth?.ok) return;
 
+    setActiveWorkspace("agent");
     const nextIndex = sessionCounter + 1;
     const nextTitle = `图片处理 #${nextIndex}`;
     void createEmptySession(nextTitle, nextIndex);
   }
 
   function handleSelectImage() {
-    if (isUploadingImage) {
+    if (isAgentWorkspace && isUploadingImage) {
+      return;
+    }
+
+    if (isCosplayWorkspace && isCosplayBusy) {
       return;
     }
 
     if (!auth?.ok) {
+      if (isCosplayWorkspace) {
+        setCosplay((prev) => ({
+          ...prev,
+          status: "failed",
+          error: "请先登录",
+        }));
+        return;
+      }
+
       updateActiveConversation((conversation) => ({
         ...conversation,
         requestError: "请先登录",
@@ -1045,7 +1174,7 @@ export default function Home() {
       return;
     }
 
-    if (!sessionId) {
+    if (isAgentWorkspace && !sessionId) {
       updateActiveConversation((conversation) => ({
         ...conversation,
         requestError: "空绘画还未创建完成，请稍后再试",
@@ -1054,6 +1183,190 @@ export default function Home() {
     }
 
     fileInputRef.current?.click();
+  }
+
+  async function parseGatewayError(response: Response, fallback: string) {
+    const payload = await response.json().catch(() => null);
+    if (payload && typeof payload.detail === "string" && payload.detail.trim()) {
+      return payload.detail;
+    }
+
+    if (response.status === 400) return "不支持的风格类型";
+    if (response.status === 401) return "请先登录";
+    if (response.status === 404) return "任务不存在或已过期，请重新上传";
+    if (response.status === 429) return "服务繁忙，请稍后再试";
+    if (response.status === 503) return "服务暂时不可用，请稍后再试";
+    if (response.status === 502) return "服务暂时未返回结果图片";
+    if (response.status === 504) return "服务处理超时，请稍后重试";
+    return fallback;
+  }
+
+  function getStyleTaskResultUrls(payload: StyleTaskPollResponse) {
+    const urls = payload.result?.output?.img_urls;
+    return Array.isArray(urls)
+      ? urls.filter((url): url is string => typeof url === "string" && Boolean(url.trim()))
+      : [];
+  }
+
+  async function pollCosplayTask(taskId: string) {
+    for (let attempt = 0; attempt < COSPLAY_POLL_MAX_ATTEMPTS; attempt += 1) {
+      if (attempt > 0) {
+        await wait(COSPLAY_POLL_INTERVAL_MS);
+      }
+
+      const response = await fetch(`${getGatewayRequestBaseUrl()}/web/style-edit/tasks/${taskId}`, {
+        cache: "no-store",
+        credentials: "include",
+      });
+      if (!response.ok) {
+        throw new Error(await parseGatewayError(response, "任务查询失败"));
+      }
+
+      const payload = (await response.json()) as StyleTaskPollResponse;
+      const status = payload.status ?? "";
+
+      if (status === "queued" || status === "running") {
+        setCosplay((prev) => ({
+          ...prev,
+          status,
+          queuePosition: payload.queue_position ?? prev.queuePosition,
+          queueSize: payload.queue_size ?? prev.queueSize,
+          progressStage: payload.progress?.stage ?? prev.progressStage,
+          progressPercent:
+            typeof payload.progress?.percent === "number"
+              ? payload.progress.percent
+              : prev.progressPercent,
+          error: "",
+        }));
+        continue;
+      }
+
+      if (status === "success") {
+        const resultImgUrls = getStyleTaskResultUrls(payload);
+        if (resultImgUrls.length === 0) {
+          throw new Error("Style API 未返回结果图片");
+        }
+
+        setCosplay((prev) => ({
+          ...prev,
+          resultImgUrls,
+          status: "succeeded",
+          queuePosition: null,
+          queueSize: null,
+          progressStage: "",
+          progressPercent: null,
+          error: "",
+        }));
+        return;
+      }
+
+      if (status === "failed") {
+        throw new Error(payload.error || payload.message || "cosplay 姿势推荐生成失败");
+      }
+
+      throw new Error(payload.message || "未知任务状态");
+    }
+
+    throw new Error("任务处理时间较长，请稍后重新上传");
+  }
+
+  async function handleCosplayImageUpload(file: File) {
+    try {
+      if (!auth?.ok) {
+        throw new Error("请先登录");
+      }
+
+      setCosplay({
+        inputPreviewUrl: "",
+        inputFileName: file.name,
+        uploadedImgUrl: "",
+        resultImgUrls: [],
+        status: "uploading",
+        taskId: "",
+        queuePosition: null,
+        queueSize: null,
+        progressStage: "",
+        progressPercent: null,
+        error: "",
+      });
+
+      const dataUrl = await readFileAsDataUrl(file);
+      setCosplay((prev) => ({
+        ...prev,
+        inputPreviewUrl: dataUrl,
+      }));
+
+      const uploadFormData = new FormData();
+      uploadFormData.append("file", file);
+      const uploadResponse = await fetch(`${getGatewayRequestBaseUrl()}/api/v1/agent/upload-file`, {
+        method: "POST",
+        credentials: "include",
+        body: uploadFormData,
+      });
+      if (!uploadResponse.ok) {
+        throw new Error(await parseGatewayError(uploadResponse, "图片上传失败"));
+      }
+
+      const uploadPayload = (await uploadResponse.json()) as {
+        img_url?: string;
+      };
+      if (!uploadPayload.img_url) {
+        throw new Error("图片上传未返回可用 URL");
+      }
+
+      setCosplay((prev) => ({
+        ...prev,
+        uploadedImgUrl: uploadPayload.img_url ?? "",
+        status: "queued",
+        taskId: "",
+        queuePosition: null,
+        queueSize: null,
+        progressStage: "",
+        progressPercent: null,
+        error: "",
+      }));
+
+      const styleResponse = await fetch(`${getGatewayRequestBaseUrl()}/web/style-edit/tasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          style: "cosplay",
+          img_url: uploadPayload.img_url,
+        }),
+      });
+      if (!styleResponse.ok) {
+        throw new Error(await parseGatewayError(styleResponse, "Cosplay Style 生成失败"));
+      }
+
+      const stylePayload = (await styleResponse.json()) as StyleTaskStartResponse;
+      if (!stylePayload.task_id) {
+        throw new Error("Style API 未返回任务 ID");
+      }
+
+      setCosplay((prev) => ({
+        ...prev,
+        taskId: stylePayload.task_id ?? "",
+        status: stylePayload.status === "running" ? "running" : "queued",
+        queuePosition: stylePayload.queue_position ?? null,
+        queueSize: stylePayload.queue_size ?? null,
+        progressStage: "",
+        progressPercent: null,
+        error: "",
+      }));
+
+      await pollCosplayTask(stylePayload.task_id);
+    } catch (error) {
+      setCosplay((prev) => ({
+        ...prev,
+        status: "failed",
+        queuePosition: null,
+        queueSize: null,
+        progressStage: "",
+        progressPercent: null,
+        error: error instanceof Error ? error.message : "Cosplay Style 生成失败",
+      }));
+    }
   }
 
   async function handleImageFileUpload(file: File) {
@@ -1082,7 +1395,7 @@ export default function Home() {
       const dataUrl = await readFileAsDataUrl(file);
       const uploadFormData = new FormData();
       uploadFormData.append("file", file);
-      const uploadResponse = await fetch(`${GATEWAY_BASE}/api/v1/agent/upload`, {
+      const uploadResponse = await fetch(`${getGatewayRequestBaseUrl()}/api/v1/agent/upload-file`, {
         method: "POST",
         credentials: "include",
         body: uploadFormData,
@@ -1113,7 +1426,7 @@ export default function Home() {
         statusText: "正在绑定图片",
       }));
 
-      const bindResponse = await fetch(`${GATEWAY_BASE}/api/v1/agent/conversations/${targetSessionId}/image`, {
+      const bindResponse = await fetch(`${getGatewayRequestBaseUrl()}/api/v1/agent/conversations/${targetSessionId}/image`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -1130,7 +1443,7 @@ export default function Home() {
         ...conversation,
         statusText: "图片已绑定，正在启动推荐生成",
       }));
-      const recommendResponse = await fetch(`${GATEWAY_BASE}/api/v1/agent/conversations/${targetSessionId}/recommend`, {
+      const recommendResponse = await fetch(`${getGatewayRequestBaseUrl()}/api/v1/agent/conversations/${targetSessionId}/recommend`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -1176,14 +1489,22 @@ export default function Home() {
     }
 
     try {
-      await handleImageFileUpload(file);
+      if (isCosplayWorkspace) {
+        await handleCosplayImageUpload(file);
+      } else {
+        await handleImageFileUpload(file);
+      }
     } finally {
       event.target.value = "";
     }
   }
 
   function handleWorkspacePaste(event: ClipboardEvent<HTMLElement>) {
-    if (isUploadingImage) {
+    if (isAgentWorkspace && isUploadingImage) {
+      return;
+    }
+
+    if (isCosplayWorkspace && isCosplayBusy) {
       return;
     }
 
@@ -1193,11 +1514,15 @@ export default function Home() {
     }
 
     event.preventDefault();
-    void handleImageFileUpload(file);
+    void (isCosplayWorkspace ? handleCosplayImageUpload(file) : handleImageFileUpload(file));
   }
 
   function handleWorkspaceDragOver(event: DragEvent<HTMLElement>) {
-    if (isUploadingImage) {
+    if (isAgentWorkspace && isUploadingImage) {
+      return;
+    }
+
+    if (isCosplayWorkspace && isCosplayBusy) {
       return;
     }
 
@@ -1210,7 +1535,11 @@ export default function Home() {
   }
 
   function handleWorkspaceDrop(event: DragEvent<HTMLElement>) {
-    if (isUploadingImage) {
+    if (isAgentWorkspace && isUploadingImage) {
+      return;
+    }
+
+    if (isCosplayWorkspace && isCosplayBusy) {
       return;
     }
 
@@ -1220,7 +1549,7 @@ export default function Home() {
     }
 
     event.preventDefault();
-    void handleImageFileUpload(file);
+    void (isCosplayWorkspace ? handleCosplayImageUpload(file) : handleImageFileUpload(file));
   }
 
   function getTurnStatusText(turn: TurnRecord) {
@@ -1280,7 +1609,7 @@ export default function Home() {
           await wait(TURN_POLL_INTERVAL_MS);
         }
 
-        const response = await fetch(`${GATEWAY_BASE}/api/v1/agent/conversations/${session}/turns/${turnId}`, {
+        const response = await fetch(`${getGatewayRequestBaseUrl()}/api/v1/agent/conversations/${session}/turns/${turnId}`, {
           cache: "no-store",
           credentials: "include",
         });
@@ -1482,7 +1811,7 @@ export default function Home() {
     }));
 
     try {
-      const response = await fetch(`${GATEWAY_BASE}/api/v1/agent/conversations/${targetSessionId}/turns`, {
+      const response = await fetch(`${getGatewayRequestBaseUrl()}/api/v1/agent/conversations/${targetSessionId}/turns`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -1543,7 +1872,7 @@ export default function Home() {
     if (!sessionId || !activeTurnId) return;
 
     try {
-      const response = await fetch(`${GATEWAY_BASE}/api/v1/agent/conversations/${sessionId}/turns/${activeTurnId}/cancel`, {
+      const response = await fetch(`${getGatewayRequestBaseUrl()}/api/v1/agent/conversations/${sessionId}/turns/${activeTurnId}/cancel`, {
         method: "POST",
         credentials: "include",
       });
@@ -1590,7 +1919,7 @@ export default function Home() {
           <nav className="sidebar-nav" aria-label="侧边栏导航">
             <button
               type="button"
-              className="sidebar-nav-item sidebar-nav-item-active"
+              className="sidebar-nav-item"
               onClick={handleCreateEntry}
               disabled={isCreating || isTurnBusy || !auth?.ok}
             >
@@ -1599,7 +1928,11 @@ export default function Home() {
               <kbd className="sidebar-shortcut">⌘ K</kbd>
             </button>
 
-            <button type="button" className="sidebar-nav-item">
+            <button
+              type="button"
+              className={isAgentWorkspace ? "sidebar-nav-item sidebar-nav-item-active" : "sidebar-nav-item"}
+              onClick={() => setActiveWorkspace("agent")}
+            >
               <SidebarIcon name="spark" />
               <span>AI 创作</span>
             </button>
@@ -1608,6 +1941,19 @@ export default function Home() {
               <SidebarIcon name="more" />
               <span>更多</span>
               <SidebarIcon name="chevron" className="sidebar-nav-chevron" />
+            </button>
+
+            <button
+              type="button"
+              className={
+                isCosplayWorkspace
+                  ? "sidebar-nav-item sidebar-nav-subitem sidebar-nav-item-active"
+                  : "sidebar-nav-item sidebar-nav-subitem"
+              }
+              onClick={() => setActiveWorkspace("cosplay")}
+            >
+              <SidebarIcon name="spark" />
+              <span>cosplay 姿势推荐</span>
             </button>
           </nav>
 
@@ -1627,7 +1973,10 @@ export default function Home() {
                       className={
                         isActive ? "history-item is-active history-item-live" : "history-item"
                       }
-                      onClick={() => setActiveConversationId(conversation.id)}
+                      onClick={() => {
+                        setActiveWorkspace("agent");
+                        setActiveConversationId(conversation.id);
+                      }}
                     >
                       <span className="history-item-icon">
                         <SidebarIcon name="chat" />
@@ -1676,20 +2025,22 @@ export default function Home() {
 
       <section
         ref={workspaceRef}
-        className={isUploadingImage ? "workspace is-uploading-image" : "workspace"}
+        className={isUploadingImage || isCosplayBusy ? "workspace is-uploading-image" : "workspace"}
         onPaste={handleWorkspacePaste}
         onDragOver={handleWorkspaceDragOver}
         onDrop={handleWorkspaceDrop}
       >
         <header className="topbar">
           <div className="topbar-group">
-            <h1>BluePixel Studio</h1>
+            <h1>{isCosplayWorkspace ? "Cosplay Style" : "BluePixel Studio"}</h1>
             <nav className="topnav">
               <a href="#">Gallery</a>
-              <a href="#" className="active">
+              <a href="#" className={isAgentWorkspace ? "active" : undefined}>
                 Model Lab
               </a>
-              <a href="#">Community</a>
+              <a href="#" className={isCosplayWorkspace ? "active" : undefined}>
+                Style Lab
+              </a>
             </nav>
           </div>
 
@@ -1723,8 +2074,11 @@ export default function Home() {
             <div className="auth-panel-copy">
               <span className="panel-kicker">AUTH</span>
               <strong>登录</strong>
-              <span>输入用户名和密码后，页面会自动创建一个空绘画会话。</span>
-              <span>测试账号: testuser / test1234</span>
+              <span>
+                {isCosplayWorkspace
+                  ? "输入用户名和密码后即可使用 Cosplay Style。"
+                  : "输入用户名和密码后，页面会自动创建一个空绘画会话。"}
+              </span>
             </div>
             <form
               className="auth-panel-form"
@@ -1758,7 +2112,91 @@ export default function Home() {
           </section>
         ) : null}
 
-        {!showUploadedPreview && !uploadedImageUrl ? (
+        {isCosplayWorkspace ? (
+          <section className="cosplay-workspace" aria-label="Cosplay Style 工作区">
+            <div className="cosplay-status-row">
+              <div className="cosplay-status-copy">
+                <span className="panel-kicker">STYLE</span>
+                <strong>cosplay姿势推荐</strong>
+                <span>{cosplayStatusText}</span>
+                {cosplayQueueText ? <span className="cosplay-status-meta">{cosplayQueueText}</span> : null}
+              </div>
+              {cosplay.error ? <em>{cosplay.error}</em> : null}
+            </div>
+
+            {!cosplay.inputPreviewUrl ? (
+              <div className="cosplay-welcome">
+                欢迎使用 Cosplay 姿势推荐。复制粘贴、点击加号上传，或将图片拖入工作区开始。
+                <br />
+                系统会基于输入图片生成多张 cosplay 姿势参考图。
+              </div>
+            ) : null}
+
+            {!cosplay.inputPreviewUrl ? (
+              <button
+                type="button"
+                className="cosplay-upload-target"
+                onClick={handleSelectImage}
+                disabled={!auth?.ok || isCosplayBusy}
+                aria-label="上传图片生成 Cosplay Style"
+              >
+                <span className="cosplay-upload-plus">+</span>
+              </button>
+            ) : (
+              <div
+                className={
+                  cosplay.resultImgUrls.length > 0
+                    ? "cosplay-image-grid"
+                    : "cosplay-image-grid cosplay-image-grid-single"
+                }
+              >
+                <article className="cosplay-image-panel">
+                  <div className="cosplay-image-label">
+                    <span>INPUT</span>
+                    <strong>{cosplay.inputFileName || "IMAGE"}</strong>
+                  </div>
+                  <ImagePreview
+                    src={cosplay.inputPreviewUrl}
+                    alt="cosplay input"
+                    className="cosplay-image-frame"
+                    onPreview={setPreviewImageUrl}
+                  />
+                </article>
+
+                {cosplay.resultImgUrls.map((resultImgUrl, index) => (
+                  <article className="cosplay-image-panel" key={resultImgUrl}>
+                    <div className="cosplay-image-label">
+                      <span>RESULT {index + 1}</span>
+                      <strong>COSPLAY STYLE</strong>
+                    </div>
+                    <ImagePreview
+                      src={resultImgUrl}
+                      alt={`cosplay result ${index + 1}`}
+                      className="cosplay-image-frame"
+                      canDownload
+                      onPreview={setPreviewImageUrl}
+                    />
+                  </article>
+                ))}
+              </div>
+            )}
+
+            {cosplay.inputPreviewUrl ? (
+              <div className="cosplay-action-row">
+                <button
+                  type="button"
+                  className="scene-banner-upload"
+                  onClick={handleSelectImage}
+                  disabled={!auth?.ok || isCosplayBusy}
+                >
+                  {isCosplayBusy ? "处理中..." : "重新上传"}
+                </button>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
+        {isAgentWorkspace && !showUploadedPreview && !uploadedImageUrl ? (
           <section className="scene-banner">
             <div className="scene-banner-copy">
               <span className="panel-kicker">SCENE</span>
@@ -1786,7 +2224,7 @@ export default function Home() {
           </section>
         ) : null}
 
-        {showUploadedPreview ? (
+        {isAgentWorkspace && showUploadedPreview ? (
           <section className="uploaded-preview-zone">
             <article className="uploaded-preview-card">
               <div className="uploaded-preview-label">
@@ -1803,13 +2241,14 @@ export default function Home() {
           </section>
         ) : null}
 
-        <section
-          className={
-            !showUploadedPreview && !hasUserMessages
-              ? "chat-stream chat-stream-empty"
-              : "chat-stream"
-          }
-        >
+        {isAgentWorkspace ? (
+          <section
+            className={
+              !showUploadedPreview && !hasUserMessages
+                ? "chat-stream chat-stream-empty"
+                : "chat-stream"
+            }
+          >
           {messages.map((message) => {
             const isUser = message.role === "user";
             const isWelcomeMessage = message.id === "assistant-welcome";
@@ -1916,9 +2355,11 @@ export default function Home() {
               </Fragment>
             );
           })}
-        </section>
+          </section>
+        ) : null}
 
-        <section className={showUploadedPreview ? "command-zone command-zone-session" : "command-zone"}>
+        {isAgentWorkspace ? (
+          <section className={showUploadedPreview ? "command-zone command-zone-session" : "command-zone"}>
           {isUploadingImage ? (
             <div className="recommendation-notice upload-notice" aria-live="polite">
               <span className="recommendation-notice-dot upload-notice-dot" />
@@ -2098,7 +2539,8 @@ export default function Home() {
               </div>
             </div>
           </div>
-        </section>
+          </section>
+        ) : null}
       </section>
 
       {previewImageUrl ? (
