@@ -292,15 +292,7 @@ function buildImageDownloadHref(imageUrl: string) {
 }
 
 function shouldUseSameOriginGateway() {
-  if (
-    typeof window !== "undefined" &&
-    window.location.port === "3000" &&
-    (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
-  ) {
-    return true;
-  }
-
-  return false;
+  return typeof window !== "undefined";
 }
 
 function getGatewayRequestBaseUrl() {
