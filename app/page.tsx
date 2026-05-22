@@ -1893,7 +1893,7 @@ export default function Home() {
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,android/allowCamera"
         className="hidden-file-input"
         onChange={handleFileChange}
       />
