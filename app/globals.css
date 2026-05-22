@@ -1924,11 +1924,46 @@ button {
     font-size: 18px;
   }
 
-  .composer-toolbar,
+  .composer-toolbar {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding-top: 8px;
+  }
+
   .composer-left,
   .composer-right {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .composer-left {
+    gap: 8px;
+  }
+
+  .composer-right {
+    flex-basis: auto;
+  }
+
+  .mode-row {
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+
+  .mode-button {
+    flex: 0 0 auto;
+    justify-content: center;
+  }
+
+  .composer-left,
+  .composer-right {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .composer-left {
+    gap: 8px;
   }
 
   .composer-right {
@@ -2171,6 +2206,7 @@ button {
   background: #f9fafb;
 }
 
+@media (min-width: 1081px) {
 /* Figma A09QSfeBay08Az5H6uNf2z layout alignment overrides */
 .workspace {
   background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
@@ -2604,8 +2640,9 @@ button {
 .uploaded-preview-close {
   display: none;
 }
+} /* end desktop-only Figma overrides */
 
-@media (max-width: 1200px) {
+@media (min-width: 1101px) and (max-width: 1200px) {
   .chat-stream {
     width: calc(100% - 64px);
     margin-top: 120px;
@@ -2630,6 +2667,7 @@ button {
   }
 }
 
+@media (min-width: 1081px) {
 /* Screenshot alignment refinements: homepage composer */
 
 .composer-glow {
@@ -2920,6 +2958,7 @@ button {
   opacity: 0.5;
   box-shadow: none;
 }
+} /* end desktop-only screenshot/canonical overrides */
 
 @media (max-width: 1080px) {
   .composer {
@@ -3177,6 +3216,7 @@ button {
   }
 }
 
+@media (min-width: 1081px) {
 /* Canonical recommendation list */
 .suggestion-card {
   width: 100%;
@@ -3566,6 +3606,7 @@ button {
   font-size: 13px;
   font-weight: 700;
 }
+} /* end desktop-only canonical/final polish overrides */
 
 @media (max-width: 1080px) {
   .composer-glow {
@@ -3632,20 +3673,30 @@ button {
   }
 
   .composer-toolbar {
-    gap: 8px;
+    flex-direction: row;
     flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
   }
 
   .composer-left {
+    flex-direction: row;
     width: 100%;
     gap: 6px;
   }
 
+  .composer-right {
+    flex-direction: row;
+    flex-basis: auto;
+  }
+
   .mode-row {
+    flex-wrap: nowrap;
     gap: 8px;
   }
 
   .mode-button {
+    flex: 0 0 auto;
     min-height: 30px;
     padding: 0 12px;
   }
